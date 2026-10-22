@@ -1,86 +1,63 @@
-import { Handler } from '@netlify/functions';
+import OpenAI from 'openai';
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
+const SUPPORTED_MODELS = new Set([
+  'gpt-4.1',
+  'gpt-4.1-mini',
+  'gpt-4.1-nano',
+  'gpt-4o',
+  'gpt-4o-mini',
+  'gpt-5',
+  'gpt-5-mini',
+  'gpt-5-nano',
+]);
+const DEFAULT_MODEL = 'gpt-4o-mini';
 
-export const handler: Handler = async (event, context) => {
-  const headers = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  };
+const headers = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+};
 
-  if (event.httpMethod === 'OPTIONS') {
-    return {
-      statusCode: 200,
-      headers,
-      body: '',
-    };
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { ...headers, 'Content-Type': 'application/json' },
+  });
+
+export default async (req: Request) => {
+  if (req.method === 'OPTIONS') {
+    return new Response('', { status: 200, headers });
   }
 
-  if (event.httpMethod !== 'POST') {
-    return {
-      statusCode: 405,
-      headers,
-      body: JSON.stringify({ error: 'Method not allowed' }),
-    };
+  if (req.method !== 'POST') {
+    return json({ error: 'Method not allowed' }, 405);
   }
 
   try {
-    const body = JSON.parse(event.body || '{}');
-    
-    if (!OPENAI_API_KEY) {
-      return {
-        statusCode: 500,
-        headers,
-        body: JSON.stringify({ 
-          error: 'OpenAI API key not configured',
-          fallback: true 
-        }),
-      };
-    }
+    const body = await req.json().catch(() => ({}));
+    // Older clients request models the AI Gateway doesn't support (e.g. gpt-3.5-turbo)
+    const model = SUPPORTED_MODELS.has(body.model) ? body.model : DEFAULT_MODEL;
 
-    const response = await fetch(OPENAI_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${OPENAI_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: body.model || 'gpt-3.5-turbo',
-        messages: body.messages || [],
-        max_tokens: body.max_tokens || 150,
-        temperature: body.temperature || 0.7
-      })
+    const openai = new OpenAI();
+    const completion = await openai.chat.completions.create({
+      model,
+      messages: body.messages || [],
+      max_tokens: body.max_tokens || 150,
+      temperature: body.temperature || 0.7,
     });
 
-    if (!response.ok) {
-      if (response.status === 429) {
-        throw new Error('Rate limit exceeded - please try again later');
-      }
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error?.message || `HTTP error! status: ${response.status}`);
-    }
-
-    const data = await response.json();
-    
-    return {
-      statusCode: 200,
-      headers,
-      body: JSON.stringify({
-        content: data.choices[0]?.message?.content || 'No response generated',
-        usage: data.usage
-      }),
-    };
-  } catch (error) {
+    return json({
+      content: completion.choices[0]?.message?.content || 'No response generated',
+      usage: completion.usage,
+    });
+  } catch (error: any) {
     console.error('OpenAI API Error:', error);
-    return {
-      statusCode: 500,
-      headers,
-      body: JSON.stringify({ 
-        error: error instanceof Error ? error.message : 'Failed to generate AI response',
-        fallback: true 
-      }),
-    };
+    const message =
+      error?.status === 429
+        ? 'Rate limit exceeded - please try again later'
+        : error instanceof Error
+          ? error.message
+          : 'Failed to generate AI response';
+    return json({ error: message, fallback: true }, 500);
   }
 };
