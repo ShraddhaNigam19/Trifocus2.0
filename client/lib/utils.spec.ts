@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest";
 import { cn } from "./utils";
+import { buildDemoUser, getDemoAuthState } from "./authDemo";
+
+describe("demo auth bootstrap", () => {
+  it("should keep the app logged out until the user explicitly signs in", () => {
+    expect(getDemoAuthState()).toBe(false);
+    expect(buildDemoUser("demo@example.com", "Demo User").email).toBe("demo@example.com");
+  });
+});
 
 describe("cn function", () => {
   it("should merge classes correctly", () => {

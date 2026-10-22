@@ -212,17 +212,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   useEffect(() => {
-    // Skip Firebase auth listener if auth is not available
+    // Demo mode should remain logged out until the user explicitly signs in.
+    // This keeps the landing page visible and avoids auto-auth redirecting users.
     if (!auth || isUsingDemoConfig || !db) {
       setLoading(false);
-      setIsInitialized(true);
-      // Set up demo user for navigation to work
-      setUser({
-        uid: 'demo-user',
-        email: 'demo@example.com',
-        displayName: 'Demo User'
-      } as User);
-      console.log('Using demo mode, setting up demo user');
+      setIsInitialized(false);
+      setUser(null);
+      console.log('Using demo mode, keeping user logged out');
       return;
     }
 
